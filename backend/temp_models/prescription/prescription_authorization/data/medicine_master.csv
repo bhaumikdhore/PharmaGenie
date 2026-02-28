@@ -1,0 +1,8 @@
+name,schedule,requires_prescription
+paracetamol,OTC,No
+xyzal,H1,Yes
+dancet-shampoo,OTC,No
+morphine,H1,Yes
+oxycodone,H1,Yes
+codeine,H1,Yes
+norco,H1,Yes

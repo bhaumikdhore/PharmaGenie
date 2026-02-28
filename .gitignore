@@ -1,0 +1,19 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.log
+.env
+
+# Node
+node_modules/
+
+# VS Code / History
+.history/
+
+# Windows
+Thumbs.db
+CON
+
+# OS
+.DS_Store

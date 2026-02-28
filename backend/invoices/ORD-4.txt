@@ -1,0 +1,9 @@
+PharmaGenie Invoice
+Invoice: ORD-4
+Customer: 16165
+Medicine: Medicine-1
+Qty: 1
+Unit Price: 0.0
+Subtotal: 0.0
+Tax: 0.0
+Total: 0.0

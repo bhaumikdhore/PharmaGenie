@@ -1,0 +1,31 @@
+medicine_id,medicine_name,stock_quantity,unit,prescription_required,dosage_per_day,category
+1,Paracetamol 500mg,300,tablets,No,2,Pain Relief
+2,Ibuprofen 400mg,220,tablets,No,2,Pain Relief
+3,Azithromycin 250mg,90,tablets,Yes,1,Antibiotic
+4,Amoxicillin 500mg,120,capsules,Yes,3,Antibiotic
+5,Cetirizine 10mg,200,tablets,No,1,Allergy
+6,Metformin 500mg,260,tablets,Yes,2,Diabetes
+7,Insulin Injection,70,vials,Yes,1,Diabetes
+8,Atorvastatin 10mg,180,tablets,Yes,1,Cholesterol
+9,Aspirin 75mg,210,tablets,No,1,Cardiac
+10,Pantoprazole 40mg,240,tablets,No,1,Gastric
+11,Losartan 50mg,190,tablets,Yes,1,Blood Pressure
+12,Montelukast 10mg,140,tablets,Yes,1,Asthma
+13,Dolo 650mg,280,tablets,No,2,Pain Relief
+14,Vitamin D3 Capsules,230,capsules,No,1,Supplement
+15,ORS Sachet,350,sachets,No,1,Hydration
+16,Salbutamol Inhaler,85,inhaler,Yes,1,Asthma
+17,Levocetirizine 5mg,175,tablets,No,1,Allergy
+18,Clopidogrel 75mg,150,tablets,Yes,1,Cardiac
+19,Omeprazole 20mg,210,capsules,No,1,Gastric
+20,Glimepiride 2mg,130,tablets,Yes,1,Diabetes
+21,Telmisartan 40mg,160,tablets,Yes,1,Blood Pressure
+22,Cough Syrup,120,bottle,No,2,Cold & Cough
+23,Multivitamin Tablets,250,tablets,No,1,Supplement
+24,Calcium Tablets,200,tablets,No,1,Supplement
+25,Insulin Pen Refill,60,cartridge,Yes,1,Diabetes
+26,Amoxiclav 625mg,100,tablets,Yes,2,Antibiotic
+27,Ranitidine 150mg,180,tablets,No,1,Gastric
+28,Hydrochlorothiazide 25mg,110,tablets,Yes,1,Blood Pressure
+29,Budesonide Inhaler,75,inhaler,Yes,1,Asthma
+30,Zinc Tablets,220,tablets,No,1,Supplement
