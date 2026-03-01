@@ -7,6 +7,8 @@ import importlib
 from contextlib import contextmanager
 from pathlib import Path
 
+from app.core.langfuse_config import langfuse
+
 
 TEMP_MODELS_DIR = Path(__file__).resolve().parents[2] / "temp_models"
 PLANNER_ROOT = TEMP_MODELS_DIR / "planner"
@@ -87,44 +89,53 @@ def _normalize_order_items(input_data: dict) -> list[dict]:
 
 
 async def run(input_data: dict) -> dict:
-    try:
-        Planner = _load_dependencies()
-        _ensure_sys_path(BILLING_ROOT)
-        _ensure_sys_path(PRESCRIPTION_ROOT)
+    _out: dict = {}
+    with langfuse.start_as_current_span(name="planner-agent", input=input_data) as span:
+        try:
+            Planner = _load_dependencies()
+            _ensure_sys_path(BILLING_ROOT)
+            _ensure_sys_path(PRESCRIPTION_ROOT)
 
-        order_items = _normalize_order_items(input_data)
-        if not order_items:
-            return {
-                "agent": "planner",
-                "status": "error",
-                "message": "Provide `order_items`, `cart_items`, or a parsable `query` (e.g. 'buy 2 paracetamol').",
-            }
+            order_items = _normalize_order_items(input_data)
+            if not order_items:
+                _out = {
+                    "agent": "planner",
+                    "status": "error",
+                    "message": "Provide `order_items`, `cart_items`, or a parsable `query` (e.g. 'buy 2 paracetamol').",
+                }
+            else:
+                prescription_image_path = input_data.get("prescription_image_path") or input_data.get("image_path")
 
-        prescription_image_path = input_data.get("prescription_image_path") or input_data.get("image_path")
+                def prescription_analyzer(path: str | None) -> dict:
+                    if path:
+                        with _working_directory(PRESCRIPTION_ROOT):
+                            analyze_prescription = importlib.import_module("main").analyze_prescription
+                            return analyze_prescription(path)
+                    return {
+                        "status": "success",
+                        "decision": "APPROVED",
+                        "message": "No prescription image provided for test route.",
+                    }
 
-        def prescription_analyzer(path: str | None) -> dict:
-            if path:
-                with _working_directory(PRESCRIPTION_ROOT):
-                    analyze_prescription = importlib.import_module("main").analyze_prescription
-                    return analyze_prescription(path)
-            return {
-                "status": "success",
-                "decision": "APPROVED",
-                "message": "No prescription image provided for test route.",
-            }
+                def billing_processor(items: list[dict]) -> dict:
+                    cart_items = [{"name": item["name"], "quantity": int(item.get("quantity", 1))} for item in items]
+                    with _working_directory(BILLING_ROOT):
+                        process_billing = importlib.import_module("billing_main").process_billing
+                        return process_billing(cart_items)
 
-        def billing_processor(items: list[dict]) -> dict:
-            cart_items = [{"name": item["name"], "quantity": int(item.get("quantity", 1))} for item in items]
-            with _working_directory(BILLING_ROOT):
-                process_billing = importlib.import_module("billing_main").process_billing
-                return process_billing(cart_items)
-
-        planner = Planner(
-            stock_checker=lambda items: {"status": "success", "items": items},
-            prescription_analyzer=prescription_analyzer,
-            billing_processor=billing_processor,
-        )
-        result = planner.execute_workflow(order_items, prescription_image_path)
-        return {"agent": "planner", **result}
-    except Exception as e:
-        return {"agent": "planner", "status": "error", "message": str(e)}
+                planner = Planner(
+                    stock_checker=lambda items: {"status": "success", "items": items},
+                    prescription_analyzer=prescription_analyzer,
+                    billing_processor=billing_processor,
+                )
+                result = planner.execute_workflow(order_items, prescription_image_path)
+                _out = {"agent": "planner", **result}
+        except Exception as e:
+            _out = {"agent": "planner", "status": "error", "message": str(e)}
+        finally:
+            try:
+                span.update(output=_out)
+                langfuse.flush()
+            except Exception:
+                pass
+    return _out

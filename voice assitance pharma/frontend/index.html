@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PharmaGenie — Voice Pharmacy Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">💊</span>
+        <h1>PharmaGenie</h1>
+        <span class="tagline">Voice Pharmacy Assistant</span>
+      </div>
+      <div class="status" id="status">Ready</div>
+    </header>
+
+    <main class="main">
+      <div class="conversation" id="conversation">
+        <div class="message assistant">
+          <span class="avatar">🤖</span>
+          <div class="bubble">
+            Namaste! I'm PharmaGenie. Say things like:<br>
+            • "Mujhe paracetamol chahiye"<br>
+            • "Add metformin to cart"<br>
+            • "Search for insulin"<br>
+            • "What's in my cart?"
+          </div>
+        </div>
+      </div>
+
+      <div class="input-area">
+        <button class="mic-btn" id="micBtn" aria-label="Start listening">
+          <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+          <span class="mic-label">Hold to speak</span>
+        </button>
+        <input type="text" id="textInput" placeholder="Or type your request..." autocomplete="off">
+        <button class="send-btn" id="sendBtn">Send</button>
+      </div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

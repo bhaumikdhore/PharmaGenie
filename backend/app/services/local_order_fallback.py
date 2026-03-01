@@ -66,3 +66,24 @@ def get_fallback_order(order_id: int) -> dict[str, Any] | None:
         _init_table(conn)
         row = conn.execute("SELECT * FROM fallback_orders WHERE id = ?", (order_id,)).fetchone()
         return dict(row) if row else None
+
+
+def list_fallback_orders_by_user(user_id: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        _init_table(conn)
+        rows = conn.execute(
+            "SELECT * FROM fallback_orders WHERE user_id = ? ORDER BY datetime(created_at) DESC, id DESC",
+            (user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def update_fallback_order_status(order_id: int, status: str) -> bool:
+    with _connect() as conn:
+        _init_table(conn)
+        cursor = conn.execute(
+            "UPDATE fallback_orders SET status = ? WHERE id = ?",
+            (status, order_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0

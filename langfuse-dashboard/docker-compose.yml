@@ -1,0 +1,115 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  PharmaGenie — Langfuse Observability Stack
+#  Services: Langfuse UI, PostgreSQL, Redis, Observability API Server
+# ─────────────────────────────────────────────────────────────────────────────
+version: "3.9"
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  langfuse-postgres:
+    image: postgres:16-alpine
+    container_name: langfuse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-langfuse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-langfuse_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-langfuse}
+    volumes:
+      - langfuse_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"          # 5433 on host so it doesn't clash with main PG
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-langfuse}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - langfuse-net
+
+  # ── Redis (queue / cache) ────────────────────────────────────────────────────
+  langfuse-redis:
+    image: redis:7-alpine
+    container_name: langfuse-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis_secret}
+    ports:
+      - "6380:6379"          # 6380 on host
+    volumes:
+      - langfuse_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-redis_secret}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - langfuse-net
+
+  # ── Langfuse Server (UI + API) ───────────────────────────────────────────────
+  langfuse-server:
+    image: ghcr.io/langfuse/langfuse:latest
+    container_name: langfuse-server
+    restart: unless-stopped
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+    ports:
+      - "3100:3000"          # Langfuse UI at http://localhost:3100
+    environment:
+      # ── Database ──
+      DATABASE_URL: postgresql://${POSTGRES_USER:-langfuse}:${POSTGRES_PASSWORD:-langfuse_secret}@langfuse-postgres:5432/${POSTGRES_DB:-langfuse}
+      # ── Redis ──
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: 6379
+      REDIS_AUTH: ${REDIS_PASSWORD:-redis_secret}
+      # ── Auth / keys ──
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-changeme_nextauth_secret_32chars}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3100}
+      SALT: ${LANGFUSE_SALT:-changeme_salt_value}
+      # ── API Keys (seeded organisation) ──
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-pharmagenie-org}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-PharmaGenie}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-pharmagenie-project}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-PharmaGenie AI Agents}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-pharmagenie-public}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-pharmagenie-secret}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@pharmagenie.local}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-PharmaGenie Admin}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-admin123}
+      # ── Feature flags ──
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
+    networks:
+      - langfuse-net
+
+  # ── PharmaGenie Observability API Server ────────────────────────────────────
+  pharmagenie-obs-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: pharmagenie-obs-server
+    restart: unless-stopped
+    depends_on:
+      - langfuse-server
+    ports:
+      - "8001:8001"          # Observability API at http://localhost:8001
+    environment:
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-pharmagenie-public}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-pharmagenie-secret}
+      LANGFUSE_HOST: http://langfuse-server:3000
+      PHARMAGENIE_BACKEND_URL: ${PHARMAGENIE_BACKEND_URL:-http://host.docker.internal:8000}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@langfuse-redis:6379/0
+    volumes:
+      - ./server:/app
+    networks:
+      - langfuse-net
+
+volumes:
+  langfuse_pgdata:
+  langfuse_redisdata:
+
+networks:
+  langfuse-net:
+    driver: bridge

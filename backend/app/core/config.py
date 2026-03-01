@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     N8N_ORDER_WEBHOOK: str
     RAZORPAY_KEY_ID: str
     RAZORPAY_KEY_SECRET: str
+    GEMINI_API_KEY: str = ""
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod

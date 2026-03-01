@@ -6,6 +6,8 @@ import importlib
 from contextlib import contextmanager
 from pathlib import Path
 
+from app.core.langfuse_config import langfuse
+
 
 PRESCRIPTION_ROOT = Path(__file__).resolve().parents[2] / "temp_models" / "prescription" / "prescription_authorization"
 
@@ -27,21 +29,29 @@ def _working_directory(path: Path):
 
 
 async def run(input_data: dict) -> dict:
-    try:
-        _ensure_sys_path(PRESCRIPTION_ROOT)
+    _out: dict = {}
+    with langfuse.start_as_current_span(name="prescription-agent", input=input_data) as span:
+        try:
+            _ensure_sys_path(PRESCRIPTION_ROOT)
 
-        image_path = input_data.get("image_path") or input_data.get("prescription_image_path")
-        if not image_path:
-            return {
-                "agent": "prescription",
-                "status": "error",
-                "message": "Provide `image_path` (or `prescription_image_path`) for prescription analysis.",
-            }
-
-        with _working_directory(PRESCRIPTION_ROOT):
-            analyze_prescription = importlib.import_module("main").analyze_prescription
-            result = analyze_prescription(str(image_path))
-
-        return {"agent": "prescription", **result}
-    except Exception as e:
-        return {"agent": "prescription", "status": "error", "message": str(e)}
+            image_path = input_data.get("image_path") or input_data.get("prescription_image_path")
+            if not image_path:
+                _out = {
+                    "agent": "prescription",
+                    "status": "error",
+                    "message": "Provide `image_path` (or `prescription_image_path`) for prescription analysis.",
+                }
+            else:
+                with _working_directory(PRESCRIPTION_ROOT):
+                    analyze_prescription = importlib.import_module("main").analyze_prescription
+                    result = analyze_prescription(str(image_path))
+                _out = {"agent": "prescription", **result}
+        except Exception as e:
+            _out = {"agent": "prescription", "status": "error", "message": str(e)}
+        finally:
+            try:
+                span.update(output=_out)
+                langfuse.flush()
+            except Exception:
+                pass
+    return _out

@@ -7,6 +7,8 @@ import importlib
 from contextlib import contextmanager
 from pathlib import Path
 
+from app.core.langfuse_config import langfuse
+
 
 BILLING_ROOT = Path(__file__).resolve().parents[2] / "temp_models" / "billing" / "billing_agent"
 
@@ -52,21 +54,29 @@ def _normalize_cart_items(input_data: dict) -> list[dict]:
 
 
 async def run(input_data: dict) -> dict:
-    try:
-        _ensure_sys_path(BILLING_ROOT)
+    _out: dict = {}
+    with langfuse.start_as_current_span(name="billing-agent", input=input_data) as span:
+        try:
+            _ensure_sys_path(BILLING_ROOT)
 
-        cart_items = _normalize_cart_items(input_data)
-        if not cart_items:
-            return {
-                "agent": "billing",
-                "status": "error",
-                "message": "Provide `cart_items`/`items` or a parsable `query` (e.g. 'buy 2 paracetamol').",
-            }
-
-        with _working_directory(BILLING_ROOT):
-            process_billing = importlib.import_module("billing_main").process_billing
-            invoice = process_billing(cart_items)
-
-        return {"agent": "billing", "status": "success", "invoice": invoice}
-    except Exception as e:
-        return {"agent": "billing", "status": "error", "message": str(e)}
+            cart_items = _normalize_cart_items(input_data)
+            if not cart_items:
+                _out = {
+                    "agent": "billing",
+                    "status": "error",
+                    "message": "Provide `cart_items`/`items` or a parsable `query` (e.g. 'buy 2 paracetamol').",
+                }
+            else:
+                with _working_directory(BILLING_ROOT):
+                    process_billing = importlib.import_module("billing_main").process_billing
+                    invoice = process_billing(cart_items)
+                _out = {"agent": "billing", "status": "success", "invoice": invoice}
+        except Exception as e:
+            _out = {"agent": "billing", "status": "error", "message": str(e)}
+        finally:
+            try:
+                span.update(output=_out)
+                langfuse.flush()
+            except Exception:
+                pass
+    return _out

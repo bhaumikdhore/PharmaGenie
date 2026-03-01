@@ -77,35 +77,18 @@ async def download_bill(order_id: str, db: AsyncSession = Depends(get_db)):
     if not order_id.isdigit():
         raise HTTPException(status_code=400, detail="order_id must be numeric")
 
-    invoice_query = text(
-        """
-        SELECT
-            u.full_name,
-            u.phone,
-            u.email,
-            u.age,
-            m.name AS medicine_name,
-            m.expiry_date,
-            m.price,
-            o.quantity,
-            o.created_at
-        FROM public.orders o
-        JOIN public.users u ON u.id = o.user_id
-        JOIN public.medicines m ON m.id = o.medicine_id
-        WHERE o.id = :order_id
-        """
+    file_path = await generate_invoice_pdf_file(int(order_id), db)
+    invoice_filename = f"invoice_{order_id}.pdf"
+
+    return FileResponse(
+        path=str(file_path),
+        media_type="application/pdf",
+        filename=invoice_filename,
     )
 
-    try:
-        result = await db.execute(invoice_query, {"order_id": int(order_id)})
-        row = result.mappings().first()
-    except SQLAlchemyError as exc:
-        row = None
-    except Exception as exc:
-        row = None
 
-    if not row:
-        row = _build_local_invoice_row(int(order_id))
+async def generate_invoice_pdf_file(order_id: int, db: AsyncSession) -> str:
+    row = await _fetch_invoice_row(order_id, db)
     if not row:
         raise HTTPException(status_code=404, detail="Order or related billing data not found")
 
@@ -115,7 +98,7 @@ async def download_bill(order_id: str, db: AsyncSession = Depends(get_db)):
     gst = (subtotal * Decimal("0.18")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     total = (subtotal + gst).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    invoice_number = f"INV-{int(order_id):04d}"
+    invoice_number = f"INV-{order_id:04d}"
     invoice_date = str(row["created_at"])
     invoice_filename = f"invoice_{order_id}.pdf"
     invoices_dir = Path("invoices")
@@ -210,12 +193,40 @@ async def download_bill(order_id: str, db: AsyncSession = Depends(get_db)):
     elements.append(Paragraph("Authorized Pharmacist Signature", styles["Normal"]))
 
     doc.build(elements)
+    return str(file_path.resolve())
 
-    return FileResponse(
-        path=str(file_path.resolve()),
-        media_type="application/pdf",
-        filename=invoice_filename,
+
+async def _fetch_invoice_row(order_id: int, db: AsyncSession):
+    invoice_query = text(
+        """
+        SELECT
+            COALESCE(u.full_name, 'N/A') AS full_name,
+            COALESCE(u.phone, 'N/A') AS phone,
+            COALESCE(u.email, 'N/A') AS email,
+            COALESCE(CAST(u.age AS TEXT), 'N/A') AS age,
+            COALESCE(m.name, CONCAT('Medicine-', CAST(o.medicine_id AS TEXT))) AS medicine_name,
+            'N/A' AS expiry_date,
+            COALESCE(m.price, 0) AS price,
+            o.quantity,
+            o.created_at
+        FROM public.orders o
+        LEFT JOIN public.users u ON CAST(u.id AS TEXT) = o.user_id
+        LEFT JOIN public.medicines m ON m.id = o.medicine_id
+        WHERE o.id = :order_id
+        """
     )
+
+    try:
+        result = await db.execute(invoice_query, {"order_id": order_id})
+        row = result.mappings().first()
+    except SQLAlchemyError:
+        row = None
+    except Exception:
+        row = None
+
+    if row:
+        return row
+    return _build_local_invoice_row(order_id)
 
 
 def _read_customers_csv() -> dict[str, dict]:

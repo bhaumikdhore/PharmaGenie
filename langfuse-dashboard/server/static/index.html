@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PharmaGenie — AI Observability Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { background: #0f172a; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; }
+    .badge-ok      { background:#064e3b; color:#6ee7b7; border:1px solid #065f46; }
+    .badge-error   { background:#450a0a; color:#fca5a5; border:1px solid #7f1d1d; }
+    .badge-warn    { background:#451a03; color:#fcd34d; border:1px solid #78350f; }
+    .badge-disabled{ background:#1e293b; color:#94a3b8; border:1px solid #334155; }
+    .badge { font-size:11px; font-weight:600; padding:2px 9px; border-radius:20px; display:inline-block; }
+    .stat-label { font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:#64748b; }
+    .stat-value { font-size:28px; font-weight:700; color:#f1f5f9; line-height:1.1; }
+    .stat-sub   { font-size:12px; color:#64748b; margin-top:2px; }
+    .table-row:hover td { background:#1e3a5f22; }
+    .agent-dot { width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:6px; }
+    .pulse { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+    .spinner { width:18px; height:18px; border:2px solid #334155; border-top-color:#38bdf8; border-radius:50%; animation:spin .7s linear infinite; display:inline-block; vertical-align:middle; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .log-line { font-size:11px; font-family:monospace; padding:2px 0; border-bottom:1px solid #1e293b; }
+    .tab-btn { padding:6px 16px; border-radius:6px; font-size:13px; font-weight:500; cursor:pointer; color:#94a3b8; }
+    .tab-btn.active { background:#0f172a; color:#38bdf8; }
+    input,textarea,select { background:#0f172a; border:1px solid #334155; color:#e2e8f0; border-radius:8px; padding:8px 12px; font-size:13px; width:100%; }
+    input:focus,textarea:focus,select:focus { outline:none; border-color:#38bdf8; }
+    button.primary { background:#0ea5e9; color:white; border:none; border-radius:8px; padding:9px 20px; font-size:13px; font-weight:600; cursor:pointer; }
+    button.primary:hover { background:#0284c7; }
+    button.primary:disabled { background:#334155; color:#64748b; cursor:not-allowed; }
+    ::-webkit-scrollbar { width:6px; height:6px; }
+    ::-webkit-scrollbar-track { background:#0f172a; }
+    ::-webkit-scrollbar-thumb { background:#334155; border-radius:3px; }
+    .trace-chip { background:#0ea5e920; color:#38bdf8; border:1px solid #0ea5e940; font-size:10px; padding:2px 7px; border-radius:10px; font-family:monospace; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+<!-- ── Header ─────────────────────────────────────────────────────────────── -->
+<header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-50" style="background:#0f172a;">
+  <div class="flex items-center gap-3">
+    <div class="w-8 h-8 rounded-lg flex items-center justify-center text-lg font-bold" style="background:linear-gradient(135deg,#0ea5e9,#6366f1)">G</div>
+    <div>
+      <span class="font-bold text-slate-100 text-sm">PharmaGenie</span>
+      <span class="text-slate-500 text-sm"> / AI Observability</span>
+    </div>
+  </div>
+  <div class="flex items-center gap-4">
+    <div class="flex items-center gap-2 text-xs text-slate-400">
+      <span id="live-dot" class="pulse" style="width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block;"></span>
+      Live — refreshes every 15s
+    </div>
+    <span id="last-refresh" class="text-xs text-slate-600">—</span>
+    <button onclick="loadAll()" class="text-xs text-sky-400 hover:text-sky-300">↻ Refresh</button>
+    <a href="/docs" target="_blank" class="text-xs text-slate-400 hover:text-slate-200">API Docs ↗</a>
+  </div>
+</header>
+
+<!-- ── Main ───────────────────────────────────────────────────────────────── -->
+<main class="max-w-screen-2xl mx-auto px-6 py-6 space-y-6">
+
+  <!-- Status row -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="card p-4">
+      <div class="stat-label mb-2">Obs Server</div>
+      <div id="st-server" class="badge badge-warn">checking…</div>
+    </div>
+    <div class="card p-4">
+      <div class="stat-label mb-2">Langfuse Cloud</div>
+      <div id="st-langfuse" class="badge badge-warn">checking…</div>
+    </div>
+    <div class="card p-4">
+      <div class="stat-label mb-2">Redis</div>
+      <div id="st-redis" class="badge badge-warn">checking…</div>
+    </div>
+    <div class="card p-4">
+      <div class="stat-label mb-2">Main Backend</div>
+      <div id="st-backend" class="badge badge-warn">checking…</div>
+    </div>
+  </div>
+
+  <!-- Metrics row -->
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+    <div class="card p-5">
+      <div class="stat-label">Total Runs</div>
+      <div id="m-total" class="stat-value mt-1">—</div>
+      <div class="stat-sub">past 7 days</div>
+    </div>
+    <div class="card p-5">
+      <div class="stat-label">Error Rate</div>
+      <div id="m-errrate" class="stat-value mt-1 text-red-400">—</div>
+      <div class="stat-sub" id="m-errcnt">— errors</div>
+    </div>
+    <div class="card p-5">
+      <div class="stat-label">Avg Latency</div>
+      <div id="m-latency" class="stat-value mt-1 text-sky-400">—</div>
+      <div class="stat-sub">milliseconds</div>
+    </div>
+    <div class="card p-5">
+      <div class="stat-label">Total Cost</div>
+      <div id="m-cost" class="stat-value mt-1 text-emerald-400">—</div>
+      <div class="stat-sub">USD (OpenAI)</div>
+    </div>
+    <div class="card p-5">
+      <div class="stat-label">Agent Types</div>
+      <div id="m-agents" class="stat-value mt-1 text-purple-400">—</div>
+      <div class="stat-sub">distinct chains</div>
+    </div>
+  </div>
+
+  <!-- Chart + Run tester -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <!-- Bar chart -->
+    <div class="card p-5 lg:col-span-2">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-semibold text-slate-200 text-sm">Runs by Agent Type</h2>
+        <div id="chart-spinner" class="spinner"></div>
+      </div>
+      <canvas id="agentChart" height="160"></canvas>
+      <div id="chart-empty" class="hidden text-center text-slate-500 text-sm py-10">No trace data yet. Run an agent below to generate your first trace.</div>
+    </div>
+
+    <!-- Quick run panel -->
+    <div class="card p-5 flex flex-col gap-4">
+      <h2 class="font-semibold text-slate-200 text-sm">Test Agent Run</h2>
+      <div>
+        <label class="stat-label block mb-1">Agent</label>
+        <select id="run-agent">
+          <option value="safety-check">Medicine Safety Check</option>
+          <option value="prescription-analysis">Prescription Analysis</option>
+          <option value="drug-interaction">Drug Interaction</option>
+          <option value="planner">Pharmacy Planner</option>
+          <option value="custom">Custom Chain</option>
+        </select>
+      </div>
+      <div id="run-fields" class="space-y-3"></div>
+      <div>
+        <label class="stat-label block mb-1">Session ID <span class="normal-case font-normal text-slate-600">(optional)</span></label>
+        <input id="run-session" placeholder="e.g. user-123" />
+      </div>
+      <button id="run-btn" class="primary" onclick="runAgent()">▶ Run &amp; Trace</button>
+      <div id="run-status" class="hidden text-xs rounded-lg p-3" style="background:#0f172a;border:1px solid #334155;"></div>
+    </div>
+  </div>
+
+  <!-- Traces table + Logs tabs -->
+  <div class="card">
+    <div class="flex items-center gap-2 px-5 pt-4 pb-0 border-b border-slate-800">
+      <button class="tab-btn active" id="tab-traces" onclick="switchTab('traces')">Recent Traces</button>
+      <button class="tab-btn" id="tab-logs" onclick="switchTab('logs')">Activity Log</button>
+      <div class="ml-auto flex items-center gap-3">
+        <input id="trace-filter" placeholder="Filter by name or user…" style="width:220px;padding:5px 10px;font-size:12px;" oninput="renderTraces()" />
+        <span id="trace-count" class="text-xs text-slate-500">0 traces</span>
+      </div>
+    </div>
+
+    <!-- Traces -->
+    <div id="panel-traces" class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-slate-800">
+            <th class="text-left stat-label px-5 py-3">Trace</th>
+            <th class="text-left stat-label px-3 py-3">Agent / Name</th>
+            <th class="text-left stat-label px-3 py-3">User</th>
+            <th class="text-left stat-label px-3 py-3">Status</th>
+            <th class="text-right stat-label px-3 py-3">Latency</th>
+            <th class="text-right stat-label px-3 py-3">Cost</th>
+            <th class="text-left stat-label px-3 py-3">Time</th>
+            <th class="text-left stat-label px-3 py-3">Link</th>
+          </tr>
+        </thead>
+        <tbody id="traces-body">
+          <tr><td colspan="8" class="text-center text-slate-500 text-sm py-10">Loading traces…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Logs tab -->
+    <div id="panel-logs" class="hidden p-5">
+      <div class="flex items-center justify-between mb-3">
+        <span class="stat-label">Activity Log</span>
+        <button onclick="activityLog=[];renderLog()" class="text-xs text-slate-500 hover:text-slate-300">Clear</button>
+      </div>
+      <div id="log-container" class="overflow-y-auto space-y-0" style="max-height:360px;font-family:monospace;"></div>
+      <div id="log-empty" class="text-slate-500 text-sm py-6 text-center">No activity yet. Run an agent to see logs.</div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+const BASE = '';  // same origin — served from FastAPI
+const LANGFUSE_CLOUD = 'https://cloud.langfuse.com';
+
+let allTraces = [];
+let activityLog = [];
+let agentChart = null;
+const AGENT_COLORS = ['#38bdf8','#818cf8','#34d399','#f472b6','#fb923c','#a78bfa','#4ade80'];
+
+// ── Agent run fields ──────────────────────────────────────────────────────────
+const AGENT_FIELDS = {
+  'safety-check': [
+    { id:'f-medicine', label:'Medicine Name', placeholder:'e.g. Paracetamol', required:true },
+    { id:'f-dosage',   label:'Dosage',        placeholder:'e.g. 500mg', required:false },
+    { id:'f-notes',    label:'Patient Notes', placeholder:'Any allergies or conditions…', required:false },
+  ],
+  'prescription-analysis': [
+    { id:'f-text', label:'Prescription Text', placeholder:'Paste OCR/prescription text here…', required:true, rows:5 },
+  ],
+  'drug-interaction': [
+    { id:'f-meds', label:'Medicines (comma-separated)', placeholder:'e.g. Metformin, Aspirin, Lisinopril', required:true },
+  ],
+  'planner': [
+    { id:'f-history',  label:'Purchase History',  placeholder:'e.g. Monthly buyer of Metformin 500mg…', required:true },
+    { id:'f-rx',       label:'Current Prescription', placeholder:'Dr. prescribed Atorvastatin 10mg…', required:true },
+    { id:'f-budget',   label:'Budget Preference', placeholder:'e.g. under ₹500/month', required:false },
+  ],
+  'custom': [
+    { id:'f-sys',   label:'System Prompt', placeholder:'You are a pharmacy assistant…', required:true, rows:3 },
+    { id:'f-msg',   label:'User Message',  placeholder:'Your question or task…', required:true },
+  ],
+};
+
+function buildFields() {
+  const agent = document.getElementById('run-agent').value;
+  const container = document.getElementById('run-fields');
+  container.innerHTML = '';
+  (AGENT_FIELDS[agent] || []).forEach(f => {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<label class="stat-label block mb-1">${f.label}${f.required ? ' <span class="text-red-500">*</span>' : ''}</label>`;
+    if (f.rows) {
+      wrap.innerHTML += `<textarea id="${f.id}" placeholder="${f.placeholder}" rows="${f.rows}"></textarea>`;
+    } else {
+      wrap.innerHTML += `<input id="${f.id}" placeholder="${f.placeholder}" />`;
+    }
+    container.appendChild(wrap);
+  });
+}
+document.getElementById('run-agent').addEventListener('change', buildFields);
+buildFields();
+
+// ── Run agent ────────────────────────────────────────────────────────────────
+async function runAgent() {
+  const agent = document.getElementById('run-agent').value;
+  const session = document.getElementById('run-session').value.trim() || undefined;
+  const btn = document.getElementById('run-btn');
+  const statusEl = document.getElementById('run-status');
+
+  const getVal = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+
+  let url = `${BASE}/run/${agent}`;
+  let body = { session_id: session };
+
+  if (agent === 'safety-check') {
+    const med = getVal('f-medicine');
+    if (!med) { showRunStatus('error', 'Medicine name is required.'); return; }
+    Object.assign(body, { medicine_name: med, dosage: getVal('f-dosage') || 'standard', patient_notes: getVal('f-notes') });
+  } else if (agent === 'prescription-analysis') {
+    const txt = getVal('f-text');
+    if (!txt) { showRunStatus('error', 'Prescription text is required.'); return; }
+    Object.assign(body, { prescription_text: txt });
+  } else if (agent === 'drug-interaction') {
+    const meds = getVal('f-meds').split(',').map(s => s.trim()).filter(Boolean);
+    if (meds.length < 2) { showRunStatus('error', 'Enter at least 2 medicines separated by commas.'); return; }
+    Object.assign(body, { medicines: meds });
+  } else if (agent === 'planner') {
+    const hist = getVal('f-history'), rx = getVal('f-rx');
+    if (!hist || !rx) { showRunStatus('error', 'History and prescription are required.'); return; }
+    Object.assign(body, { history: hist, prescription: rx, budget: getVal('f-budget') || 'no preference' });
+  } else if (agent === 'custom') {
+    const sys = getVal('f-sys'), msg = getVal('f-msg');
+    if (!sys || !msg) { showRunStatus('error', 'System prompt and user message are required.'); return; }
+    Object.assign(body, { system_prompt: sys, user_message: msg });
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Running…';
+  showRunStatus('loading', 'Sending to agent…');
+  addLog('info', `→ POST /run/${agent} ${session ? `[session:${session}]` : ''}`);
+
+  try {
+    const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    showRunStatus('ok', '✓ Agent run complete — trace sent to Langfuse\n\n' + JSON.stringify(data.result, null, 2));
+    addLog('ok', `✓ /run/${agent} completed`);
+    setTimeout(() => loadAll(), 2000);
+  } catch (e) {
+    showRunStatus('error', '✗ ' + e.message);
+    addLog('error', `✗ /run/${agent} failed: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '▶ Run &amp; Trace';
+  }
+}
+
+function showRunStatus(type, msg) {
+  const el = document.getElementById('run-status');
+  el.classList.remove('hidden');
+  const colors = { ok:'border-emerald-700 text-emerald-300', error:'border-red-800 text-red-300', loading:'border-slate-700 text-slate-400' };
+  el.className = `text-xs rounded-lg p-3 whitespace-pre-wrap ${colors[type]}`;
+  el.style.border = '1px solid';
+  el.style.background = '#0f172a';
+  el.textContent = msg;
+}
+
+// ── Load health ──────────────────────────────────────────────────────────────
+async function loadHealth() {
+  try {
+    const d = await (await fetch(`${BASE}/health`)).json();
+    setBadge('st-server',   d.status === 'ok' ? 'ok' : 'error', d.status === 'ok' ? '● Online' : '✗ Degraded');
+    setBadge('st-langfuse', d.langfuse, d.langfuse === 'ok' ? '● Connected' : '✗ ' + d.langfuse);
+    setBadge('st-redis',    d.redis === 'ok' ? 'ok' : d.redis === 'disabled' ? 'disabled' : 'error',
+                            d.redis === 'ok' ? '● Connected' : d.redis === 'disabled' ? '○ Disabled' : '✗ ' + d.redis);
+  } catch {
+    setBadge('st-server', 'error', '✗ Offline');
+  }
+  // Check main backend
+  try {
+    const r = await fetch('http://localhost:8000/', { signal: AbortSignal.timeout(3000) });
+    setBadge('st-backend', r.ok ? 'ok' : 'warn', r.ok ? '● Running' : '⚠ ' + r.status);
+  } catch {
+    setBadge('st-backend', 'warn', '○ Not checked');
+  }
+}
+
+function setBadge(id, type, text) {
+  const el = document.getElementById(id);
+  el.className = `badge badge-${type === 'ok' ? 'ok' : type === 'disabled' ? 'disabled' : type === 'warn' ? 'warn' : 'error'}`;
+  el.textContent = text;
+}
+
+// ── Load metrics ─────────────────────────────────────────────────────────────
+async function loadMetrics() {
+  try {
+    const d = await (await fetch(`${BASE}/metrics/summary`)).json();
+    document.getElementById('m-total').textContent   = d.total_runs ?? '0';
+    document.getElementById('m-errrate').textContent = (d.error_rate_pct ?? 0) + '%';
+    document.getElementById('m-errcnt').textContent  = (d.error_count ?? 0) + ' errors';
+    document.getElementById('m-latency').textContent = d.avg_latency_ms ? d.avg_latency_ms + 'ms' : '—';
+    document.getElementById('m-cost').textContent    = d.total_cost_usd != null ? '$' + d.total_cost_usd.toFixed(4) : '—';
+    const agents = d.runs_by_agent ?? {};
+    document.getElementById('m-agents').textContent  = Object.keys(agents).length;
+    renderChart(agents);
+  } catch(e) {
+    console.warn('metrics error', e);
+  }
+}
+
+function renderChart(data) {
+  const spinner = document.getElementById('chart-spinner');
+  spinner.style.display = 'none';
+  const empty = document.getElementById('chart-empty');
+  const canvas = document.getElementById('agentChart');
+
+  const labels = Object.keys(data);
+  const values = Object.values(data);
+
+  if (labels.length === 0) {
+    empty.classList.remove('hidden');
+    canvas.style.display = 'none';
+    return;
+  }
+  empty.classList.add('hidden');
+  canvas.style.display = 'block';
+
+  if (agentChart) agentChart.destroy();
+  agentChart = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: labels.map((_, i) => AGENT_COLORS[i % AGENT_COLORS.length] + 'cc'),
+        borderColor:     labels.map((_, i) => AGENT_COLORS[i % AGENT_COLORS.length]),
+        borderWidth: 1,
+        borderRadius: 5,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.raw} runs` } },
+      },
+      scales: {
+        x: { grid: { color:'#1e293b' }, ticks: { color:'#94a3b8', font:{size:11} } },
+        y: { grid: { color:'#1e293b' }, ticks: { color:'#94a3b8', font:{size:11}, stepSize:1 }, beginAtZero:true },
+      }
+    }
+  });
+}
+
+// ── Load traces ───────────────────────────────────────────────────────────────
+async function loadTraces() {
+  try {
+    const d = await (await fetch(`${BASE}/traces?limit=50`)).json();
+    allTraces = d.data || [];
+    renderTraces();
+  } catch(e) {
+    document.getElementById('traces-body').innerHTML =
+      `<tr><td colspan="8" class="text-center text-slate-500 py-8">Could not load traces. ${e.message}</td></tr>`;
+  }
+}
+
+function renderTraces() {
+  const filter = document.getElementById('trace-filter').value.toLowerCase();
+  const traces = allTraces.filter(t =>
+    !filter ||
+    (t.name || '').toLowerCase().includes(filter) ||
+    (t.userId || '').toLowerCase().includes(filter) ||
+    (t.sessionId || '').toLowerCase().includes(filter)
+  );
+  document.getElementById('trace-count').textContent = traces.length + ' traces';
+  const tbody = document.getElementById('traces-body');
+  if (!traces.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-slate-500 text-sm py-10">No traces yet. Run an agent on the right to generate your first trace.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = traces.map(t => {
+    const level = t.level || 'DEFAULT';
+    const isErr = level === 'ERROR';
+    const latency = t.latency != null ? t.latency + 'ms' : '—';
+    const cost = t.totalCost != null ? '$' + parseFloat(t.totalCost).toFixed(5) : '—';
+    const ts = t.timestamp ? new Date(t.timestamp).toLocaleString() : '—';
+    const shortId = (t.id || '').slice(0, 8);
+    return `<tr class="table-row border-b border-slate-800">
+      <td class="px-5 py-3"><span class="trace-chip">${shortId}…</span></td>
+      <td class="px-3 py-3 text-slate-300 text-xs font-medium">${t.name || '—'}</td>
+      <td class="px-3 py-3 text-slate-400 text-xs">${t.userId || t.sessionId || '—'}</td>
+      <td class="px-3 py-3"><span class="badge ${isErr ? 'badge-error' : 'badge-ok'}">${isErr ? '✗ ERROR' : '✓ OK'}</span></td>
+      <td class="px-3 py-3 text-right text-slate-400 text-xs">${latency}</td>
+      <td class="px-3 py-3 text-right text-emerald-400 text-xs">${cost}</td>
+      <td class="px-3 py-3 text-slate-500 text-xs">${ts}</td>
+      <td class="px-3 py-3"><a href="${LANGFUSE_CLOUD}/trace/${t.id}" target="_blank" class="text-sky-500 hover:text-sky-300 text-xs">Open ↗</a></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Activity log ──────────────────────────────────────────────────────────────
+function addLog(type, msg) {
+  const colors = { info:'#94a3b8', ok:'#34d399', error:'#f87171', warn:'#fbbf24' };
+  activityLog.unshift({ type, msg, ts: new Date().toLocaleTimeString() });
+  if (activityLog.length > 200) activityLog.length = 200;
+  renderLog();
+}
+function renderLog() {
+  const el = document.getElementById('log-container');
+  const emptyEl = document.getElementById('log-empty');
+  if (!activityLog.length) { el.innerHTML = ''; emptyEl.style.display=''; return; }
+  emptyEl.style.display = 'none';
+  const colors = { info:'#94a3b8', ok:'#34d399', error:'#f87171', warn:'#fbbf24' };
+  el.innerHTML = activityLog.map(l =>
+    `<div class="log-line" style="color:${colors[l.type] || '#94a3b8'}"><span style="color:#475569">[${l.ts}]</span> ${l.msg}</div>`
+  ).join('');
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(name) {
+  ['traces','logs'].forEach(t => {
+    document.getElementById(`panel-${t}`).classList.toggle('hidden', t !== name);
+    document.getElementById(`tab-${t}`).classList.toggle('active', t === name);
+  });
+}
+
+// ── Master load ───────────────────────────────────────────────────────────────
+async function loadAll() {
+  document.getElementById('last-refresh').textContent = 'Refreshing…';
+  addLog('info', 'Dashboard refresh started');
+  await Promise.all([loadHealth(), loadMetrics(), loadTraces()]);
+  document.getElementById('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  addLog('ok', 'Dashboard data loaded');
+}
+
+loadAll();
+setInterval(loadAll, 15000);
+</script>
+</body>
+</html>

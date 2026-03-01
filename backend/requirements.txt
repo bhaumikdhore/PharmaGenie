@@ -16,3 +16,6 @@ langchain-community
 langfuse
 reportlab
 razorpay
+google-generativeai
+pillow
+python-multipart
